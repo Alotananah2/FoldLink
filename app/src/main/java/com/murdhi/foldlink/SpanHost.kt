@@ -173,7 +173,7 @@ object SpanHost {
         addLog("open wide home on display $id → exit $r")
     }
 
-    private inline fun sendClient(block: (DataOutputStream) -> Unit) {
+    private fun sendClient(block: (DataOutputStream) -> Unit) {
         val o = clientOut ?: return
         try { synchronized(o) { block(o); o.flush() } } catch (e: Exception) { clientOut = null; try { client?.close() } catch (_: Exception) {} }
     }
