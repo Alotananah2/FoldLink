@@ -147,7 +147,7 @@ object SpanHost {
             // FoldLink can't get root itself → let Termux (which has root) run the engine.
             val script = File(ctx.getExternalFilesDir(null), "foldspan.sh")
             script.writeText("#!/system/bin/sh\n$cmd\n")
-            post("FoldLink has no root, so start it from Termux.\nIn Termux, run:\n\nsu -c sh ${script.path}\n\n(Waiting 2 minutes…)")
+            post("FoldLink has no root, so start it from Termux.\nIn Termux, run:\n\nsu -c sh ${script.path.replace("/storage/emulated/", "/data/media/")}\n\n(Waiting 2 minutes…)")
             bridgeWaitMs = 120_000
         }
         post("Starting the wide screen…")
