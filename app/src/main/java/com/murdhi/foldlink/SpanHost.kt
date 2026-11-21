@@ -79,14 +79,34 @@ object SpanHost {
     private fun addLog(l: String) { android.util.Log.i("FoldSpan", l); synchronized(logLines) { logLines.addLast(l); while (logLines.size > 14) logLines.removeFirst() } }
     fun tail() = synchronized(logLines) { logLines.joinToString("\n") }
 
-    fun su(cmd: String): Int = try { Runtime.getRuntime().exec(arrayOf("su", "-c", cmd)).waitFor() } catch (e: Exception) { -1 }
+    @Volatile private var suBin: String? = null
+
+    /** Find a working su (KernelSU / Magisk / APatch put it in different places). Logs every attempt. */
+    fun findSu(): String? {
+        suBin?.let { return it }
+        for (b in listOf("su", "/system/bin/su", "/system/xbin/su", "/debug_ramdisk/su", "/sbin/su", "/data/adb/ksu/bin/su", "/data/adb/ap/bin/su")) {
+            try {
+                val p = ProcessBuilder(b, "-c", "id").redirectErrorStream(true).start()
+                val out = p.inputStream.bufferedReader().readText().trim()
+                val code = p.waitFor()
+                addLog("su try $b → exit $code: $out")
+                if (code == 0 && out.contains("uid=0")) { suBin = b; return b }
+            } catch (e: Exception) { addLog("su try $b → ${e.message}") }
+        }
+        return null
+    }
+
+    fun su(cmd: String): Int = try {
+        val b = findSu() ?: return -1
+        Runtime.getRuntime().exec(arrayOf(b, "-c", cmd)).waitFor()
+    } catch (e: Exception) { -1 }
 
     private fun align8(v: Int) = v / 8 * 8
 
     @Suppress("DEPRECATION")
     private fun run(ctx: Context, pkg: String?) {
         post("Preparing…")
-        if (su("true") != 0) throw Exception("No root for FoldLink. Open KernelSU → Superuser → turn on FoldLink, then try again")
+        if (findSu() == null) throw Exception("No root for FoldLink. Open KernelSU → Superuser → turn on FoldLink, then try again")
         val jar = File(ctx.filesDir, "foldspan.jar")
         ctx.assets.open("foldspan-server.jar").use { i -> jar.outputStream().use { i.copyTo(it) } }
         val apk = ctx.applicationInfo.sourceDir
@@ -115,7 +135,7 @@ object SpanHost {
             "video_codec=h264 video_bit_rate=10000000 max_fps=60 send_device_meta=false send_dummy_byte=false " +
             "new_display=${vw}x${vh}/$dpi vd_system_decorations=true display_ime_policy=local"
         addLog("$ $cmd")
-        val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+        val p = ProcessBuilder(findSu()!!, "-c", cmd).redirectErrorStream(true).start()
         proc = p
         Thread {
             try { p.inputStream.bufferedReader().forEachLine { addLog(it) } } catch (_: Exception) {}
