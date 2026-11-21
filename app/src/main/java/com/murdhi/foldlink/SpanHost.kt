@@ -80,10 +80,13 @@ object SpanHost {
     fun tail() = synchronized(logLines) { logLines.joinToString("\n") }
 
     @Volatile private var suBin: String? = null
+    @Volatile private var suChecked = 0L
 
     /** Find a working su (KernelSU / Magisk / APatch put it in different places). Logs every attempt. */
     fun findSu(): String? {
         suBin?.let { return it }
+        if (System.currentTimeMillis() - suChecked < 30_000) return null
+        suChecked = System.currentTimeMillis()
         for (b in listOf("su", "/system/bin/su", "/system/xbin/su", "/debug_ramdisk/su", "/sbin/su", "/data/adb/ksu/bin/su", "/data/adb/ap/bin/su")) {
             try {
                 val p = ProcessBuilder(b, "-c", "id").redirectErrorStream(true).start()
@@ -290,6 +293,8 @@ object SpanHost {
             try { val b = name.toByteArray(Charsets.UTF_8); o.writeByte(16); o.writeByte(b.size); o.write(b); o.flush() } catch (_: Exception) {}
         }
     }
+
+    fun requestKeyframe() { if (running) resetVideo() }
 
     private fun resetVideo() {
         ctrlExec.execute { val o = ctrlOut ?: return@execute; try { o.writeByte(17); o.flush() } catch (_: Exception) {} }

@@ -145,6 +145,7 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
     override fun onSize(w: Int, h: Int) {
         runOnUiThread {
             if (w == vw && h == vh && decoder != null) return@runOnUiThread
+            needKey = true
             synchronized(decLock) { try { decoder?.stop(); decoder?.release() } catch (_: Exception) {}; decoder = null }
             vw = w; vh = h
             layoutVideo()
@@ -157,6 +158,8 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
 
     override fun onPacket(data: ByteArray, pts: Long, config: Boolean, key: Boolean) {
         if (config) { pendingConfig = data }
+        if (statusView.visibility == View.VISIBLE && (!isHost || SpanHost.status.isEmpty())) runOnUiThread { statusView.visibility = View.GONE }
+        if (vw == 0 && isHost && SpanHost.width > 0) onSize(SpanHost.width, SpanHost.height)
         synchronized(decLock) {
             val d = decoder ?: return
             if (config) { feed(d, data, pts, true); return }
@@ -164,7 +167,18 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
             needKey = false
             feed(d, data, pts, false)
         }
-        if (statusView.visibility == View.VISIBLE && (!isHost || SpanHost.status.isEmpty())) runOnUiThread { statusView.visibility = View.GONE }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isHost) {
+            // Re-attach to the running engine (we may have missed its updates while in the background).
+            SpanHost.viewer = this
+            onStatus(SpanHost.status)
+            if (SpanHost.width > 0) onSize(SpanHost.width, SpanHost.height)
+            pendingConfig = SpanHost.lastConfig ?: pendingConfig
+            SpanHost.requestKeyframe()
+        }
     }
 
     private fun feed(d: MediaCodec, data: ByteArray, pts: Long, config: Boolean) {
