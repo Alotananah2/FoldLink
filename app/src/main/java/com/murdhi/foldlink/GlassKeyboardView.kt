@@ -58,6 +58,9 @@ class GlassKeyboardView(
     }
 
     private val handler = Handler(Looper.getMainLooper())
+    private val charViews = mutableListOf<Pair<TextView, K>>()
+    private var shiftView: TextView? = null
+    private var shiftBg: GradientDrawable? = null
 
     init {
         hook()
@@ -112,9 +115,6 @@ class GlassKeyboardView(
         }
     }
 
-    private val charViews = mutableListOf<Pair<TextView, K>>()
-    private var shiftView: TextView? = null
-    private var shiftBg: GradientDrawable? = null
 
     /** Shift changes only relabel keys; no rebuild, so typing stays instant. */
     fun refreshShift() {

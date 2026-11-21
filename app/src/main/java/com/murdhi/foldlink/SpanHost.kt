@@ -86,7 +86,7 @@ object SpanHost {
     @Suppress("DEPRECATION")
     private fun run(ctx: Context, pkg: String?) {
         post("Preparing…")
-        if (su("true") != 0) throw Exception("Root access is needed. Allow FoldLink in your root app and try again")
+        if (su("true") != 0) throw Exception("No root for FoldLink. Open KernelSU → Superuser → turn on FoldLink, then try again")
         val jar = File(ctx.filesDir, "foldspan.jar")
         ctx.assets.open("foldspan-server.jar").use { i -> jar.outputStream().use { i.copyTo(it) } }
         val apk = ctx.applicationInfo.sourceDir
