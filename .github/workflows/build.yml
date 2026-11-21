@@ -12,7 +12,7 @@ jobs:
       - name: Bundle scrcpy server (Apache 2.0) used for stretched apps
         run: |
           mkdir -p app/src/main/assets
-          curl -fsSL -o app/src/main/assets/foldspan-server.jar https://github.com/Genymobile/scrcpy/releases/download/v3.1/scrcpy-server-v3.1
+          curl -fsSL -o app/src/main/assets/foldspan-server.jar https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-server-v5.0.1
       - run: gradle assembleDebug
       - uses: actions/upload-artifact@v4
         with:

@@ -66,6 +66,11 @@ class MainActivity : Activity() {
         col.addView(spinner)
         col.addView(button("Refresh paired phones") { loadDevices() })
         col.addView(CheckBox(this).apply {
+            text = "Always extend: phone 2 is always the right half of phone 1 (needs Wi-Fi + root)"
+            isChecked = prefs.getBoolean(Prefs.ALWAYS_EXTEND, true)
+            setOnCheckedChangeListener { _, b -> prefs.edit().putBoolean(Prefs.ALWAYS_EXTEND, b).apply() }
+        })
+        col.addView(CheckBox(this).apply {
             text = "Power off this phone if the link is lost"
             isChecked = prefs.getBoolean(Prefs.OFF_ON_LOST, false)
             setOnCheckedChangeListener { _, b -> prefs.edit().putBoolean(Prefs.OFF_ON_LOST, b).apply() }
@@ -93,6 +98,9 @@ class MainActivity : Activity() {
         col.addView(text("Run", 20f))
         col.addView(button("Start / restart link") { LinkService.restart(this) })
         col.addView(button("Stop link") { stopService(Intent(this, LinkService::class.java)) })
+        col.addView(button("⧉ Start wide screen now (phone 1)") {
+            if (Prefs.isMain(this)) SpanHost.start(this) else Toast.makeText(this, "Do this on phone 1", Toast.LENGTH_SHORT).show()
+        })
         col.addView(button("⧉ Stretch an app across both screens") { pickStretchApp() })
         col.addView(button("▶ Play a video across both screens") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("video/*"), 7)
@@ -129,7 +137,8 @@ class MainActivity : Activity() {
     private fun tick() {
         val side = if (Prefs.isLeft(this)) "left" else "right"
         val role = if (Prefs.isMain(this)) "MAIN" else "SECOND"
-        statusView.text = "This phone: $role ($side side)\nStatus: ${Link.status}"
+        val span = if (SpanHost.status.isNotEmpty()) "\nWide screen: ${SpanHost.status}" else if (SpanHost.running) "\nWide screen: running" else ""
+        statusView.text = "This phone: $role ($side side)\nStatus: ${Link.status}$span"
         handler.postDelayed({ tick() }, 1000)
     }
 

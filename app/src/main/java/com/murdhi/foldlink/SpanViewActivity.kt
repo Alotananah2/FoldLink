@@ -52,6 +52,7 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         isHost = intent.getBooleanExtra("host", false)
+        active = true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
@@ -67,12 +68,17 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
         root.addView(controls(), FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = 24 })
         setContentView(root)
         root.setOnTouchListener { _, e -> onTouch(e); true }
+        Link.listeners.add(onLink)
 
         if (isHost) {
             SpanHost.viewer = this
             if (SpanHost.width > 0) onSize(SpanHost.width, SpanHost.height)
             pendingConfig = SpanHost.lastConfig
         } else Thread { runClient() }.start()
+    }
+
+    private val onLink: (org.json.JSONObject) -> Unit = { o ->
+        if (!isHost && o.optString("t") == "span_stop") { ended = true; finish() }
     }
 
     private fun controls(): View = LinearLayout(this).apply {
@@ -82,44 +88,64 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
             text = t; textSize = 18f; setTextColor(Color.WHITE); setPadding(34, 10, 34, 10); setOnClickListener { f() }
         })
         btn("◀") { sendKey(KeyEvent.KEYCODE_BACK) }
+        btn("●") { sendKey(KeyEvent.KEYCODE_HOME) }
+        btn("▢") { sendKey(KeyEvent.KEYCODE_APP_SWITCH) }
         btn("✕") { close() }
     }
 
     // ---------- phone 2: receive over Wi-Fi ----------
 
+    companion object {
+        @Volatile var active = false
+        @Volatile var live = false
+        @Volatile var lastIps = ""
+        @Volatile var lastPort = SpanHost.PORT
+    }
+
     private fun runClient() {
-        val ips = (intent.getStringExtra("ips") ?: "").split(",").filter { it.isNotBlank() }
-        val port = intent.getIntExtra("port", SpanHost.PORT)
-        var s: Socket? = null
-        for (ip in ips) {
-            try { s = Socket().apply { connect(InetSocketAddress(ip, port), 3000); tcpNoDelay = true }; break } catch (_: Exception) {}
-        }
-        if (s == null) {
-            runOnUiThread { statusView.text = "Can't reach phone 1 over Wi-Fi.\nConnect both phones to the same Wi-Fi, or turn on phone 1's hotspot and join it." }
-            return
-        }
-        sock = s
-        sockOut = DataOutputStream(BufferedOutputStream(s.getOutputStream()))
-        runOnUiThread { statusView.text = "Connected. Waiting for the picture…" }
-        try {
-            val din = DataInputStream(BufferedInputStream(s.getInputStream(), 1 shl 16))
-            val w = din.readInt(); val h = din.readInt()
-            runOnUiThread { onSize(w, h) }
-            while (!ended) {
-                val ptsFlags = din.readLong()
-                val len = din.readInt()
-                val data = ByteArray(len)
-                din.readFully(data)
-                onPacket(data, ptsFlags and ((1L shl 62) - 1), (ptsFlags and (1L shl 63)) != 0L, (ptsFlags and (1L shl 62)) != 0L)
+        val ips = (intent.getStringExtra("ips") ?: lastIps).split(",").filter { it.isNotBlank() }
+        val port = intent.getIntExtra("port", lastPort)
+        lastIps = ips.joinToString(","); lastPort = port
+        var fails = 0
+        while (!ended) {
+            var s: Socket? = null
+            for (ip in ips) {
+                try { s = Socket().apply { connect(InetSocketAddress(ip, port), 2500); tcpNoDelay = true }; break } catch (_: Exception) {}
             }
-        } catch (_: Exception) {}
-        if (!ended) runOnUiThread { finish() }
+            if (s == null) {
+                fails++
+                runOnUiThread { statusView.visibility = View.VISIBLE
+                    statusView.text = "Can't reach phone 1 over Wi-Fi (try $fails).\nPut both phones on the same Wi-Fi, or turn on phone 1's hotspot and join it." }
+                Thread.sleep(2000); continue
+            }
+            fails = 0
+            sock = s
+            sockOut = DataOutputStream(BufferedOutputStream(s.getOutputStream()))
+            runOnUiThread { statusView.visibility = View.VISIBLE; statusView.text = "Connected. Waiting for the picture…" }
+            try {
+                val din = DataInputStream(BufferedInputStream(s.getInputStream(), 1 shl 16))
+                din.readInt() // codec id
+                while (!ended) {
+                    val head = din.readLong()
+                    val n = din.readInt()
+                    if ((head and (1L shl 63)) != 0L) { onSize((head and 0xffffffffL).toInt(), n); continue }
+                    val data = ByteArray(n)
+                    din.readFully(data)
+                    onPacket(data, head and ((1L shl 61) - 1), (head and (1L shl 62)) != 0L, (head and (1L shl 61)) != 0L)
+                }
+            } catch (_: Exception) {}
+            try { s.close() } catch (_: Exception) {}
+            sockOut = null
+            if (!ended) Thread.sleep(1000)
+        }
     }
 
     // ---------- video ----------
 
     override fun onSize(w: Int, h: Int) {
         runOnUiThread {
+            if (w == vw && h == vh && decoder != null) return@runOnUiThread
+            synchronized(decLock) { try { decoder?.stop(); decoder?.release() } catch (_: Exception) {}; decoder = null }
             vw = w; vh = h
             layoutVideo()
             startDecoder()
@@ -138,7 +164,7 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
             needKey = false
             feed(d, data, pts, false)
         }
-        if (statusView.visibility == View.VISIBLE && !isHost) runOnUiThread { statusView.visibility = View.GONE }
+        if (statusView.visibility == View.VISIBLE && (!isHost || SpanHost.status.isEmpty())) runOnUiThread { statusView.visibility = View.GONE }
     }
 
     private fun feed(d: MediaCodec, data: ByteArray, pts: Long, config: Boolean) {
@@ -226,6 +252,7 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
     }
 
     private fun close() {
+        Prefs.get(this).edit().putBoolean(Prefs.EXTEND_PAUSED, true).apply()
         if (isHost) SpanHost.stop()
         else sendExec.execute {
             try { sockOut?.apply { writeByte(3); flush() } } catch (_: Exception) {}
@@ -238,6 +265,8 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
 
     override fun onDestroy() {
         ended = true
+        active = false
+        Link.listeners.remove(onLink)
         if (isHost && SpanHost.viewer === this) SpanHost.viewer = null
         try { sock?.close() } catch (_: Exception) {}
         synchronized(decLock) { try { decoder?.stop(); decoder?.release() } catch (_: Exception) {}; decoder = null }

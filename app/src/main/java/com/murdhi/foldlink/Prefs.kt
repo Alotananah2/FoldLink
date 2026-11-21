@@ -12,6 +12,8 @@ object Prefs {
     const val HOME = "home"            // apps placed on the home screen
     const val WIDGETS = "widgets"      // this phone's widget ids
     const val SPLIT_KB = "splitKb"
+    const val ALWAYS_EXTEND = "alwaysExtend"   // phone 2 is always the right half of phone 1
+    const val EXTEND_PAUSED = "extendPaused"   // user pressed ✕; resumes on next link
     fun get(c: Context): SharedPreferences = c.getSharedPreferences("fold", Context.MODE_PRIVATE)
     fun isMain(c: Context) = get(c).getString(ROLE, "main") == "main"
     fun isLeft(c: Context) = isMain(c) xor get(c).getBoolean(SWAP, false)

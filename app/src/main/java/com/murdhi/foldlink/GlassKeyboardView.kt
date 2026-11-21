@@ -48,9 +48,10 @@ class GlassKeyboardView(
             hooked = true
             Link.listeners.add { o ->
                 if (o.optString("t") == "kb_mode") {
+                    val layerChanged = symbols != o.optBoolean("symbols") || arabic != o.optBoolean("arabic")
                     shift = o.optBoolean("shift"); caps = o.optBoolean("caps")
                     symbols = o.optBoolean("symbols"); arabic = o.optBoolean("arabic")
-                    live.toList().forEach { it.build() }
+                    live.toList().forEach { if (layerChanged) it.build() else it.refreshShift() }
                 }
             }
         }
@@ -111,8 +112,21 @@ class GlassKeyboardView(
         }
     }
 
+    private val charViews = mutableListOf<Pair<TextView, K>>()
+    private var shiftView: TextView? = null
+    private var shiftBg: GradientDrawable? = null
+
+    /** Shift changes only relabel keys; no rebuild, so typing stays instant. */
+    fun refreshShift() {
+        val upper = (shift || caps) && !symbols && !arabic
+        charViews.forEach { (tv, k) -> tv.text = if (upper) k.label.uppercase() else k.label }
+        shiftView?.text = if (caps) "⇪" else "⇧"
+        shiftBg?.setColor(if (shift || caps) Color.rgb(62, 145, 255) else Color.rgb(46, 47, 52))
+    }
+
     fun build() {
         removeAllViews()
+        charViews.clear(); shiftView = null; shiftBg = null
         rows().forEach { row ->
             val line = LinearLayout(context).apply { orientation = HORIZONTAL }
             row.forEach { k -> line.addView(keyView(k)) }
@@ -120,9 +134,9 @@ class GlassKeyboardView(
         }
     }
 
-    private fun broadcastMode() {
-        build()
-        live.filter { it !== this }.forEach { it.build() }
+    private fun broadcastMode(layer: Boolean = true) {
+        if (layer) { build(); live.filter { it !== this }.forEach { it.build() } }
+        else live.forEach { it.refreshShift() }
         if (mode != Mode.FULL)
             Link.send(Link.msg("kb_mode", "shift" to shift, "caps" to caps, "symbols" to symbols, "arabic" to arabic))
     }
@@ -136,46 +150,46 @@ class GlassKeyboardView(
         val text = when (k.kind) { CHAR -> if (upper) k.label.uppercase() else k.label; else -> k.label }
         val functional = k.kind != CHAR && k.kind != SPACE
         val accent = (k.kind == SHIFT && (shift || caps)) || k.kind == ENTER
-        return TextView(context).apply {
+        val bg = GradientDrawable().apply {
+            cornerRadius = dp(9).toFloat()
+            setColor(when { accent -> Color.rgb(62, 145, 255); functional -> Color.rgb(46, 47, 52); else -> Color.rgb(64, 65, 71) })
+        }
+        val view = TextView(context).apply {
             this.text = text
             textSize = when { k.kind == SPACE -> 13f; text.length > 2 -> 14f; else -> 21f }
             gravity = Gravity.CENTER
             setTextColor(if (k.kind == SPACE) Color.argb(150, 255, 255, 255) else Color.WHITE)
-            background = GradientDrawable().apply {
-                cornerRadius = dp(9).toFloat()
-                setColor(when { accent -> Color.rgb(62, 145, 255); functional -> Color.rgb(46, 47, 52); else -> Color.rgb(64, 65, 71) })
-            }
+            background = bg
             layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, k.w).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
-            if (k.kind == BACK) {
-                // hold backspace to keep deleting
-                val repeat = object : Runnable {
-                    override fun run() { listener.onSpecial(Special.BACKSPACE); handler.postDelayed(this, 55) }
-                }
-                setOnTouchListener { v, e ->
-                    when (e.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            v.isPressed = true; v.alpha = 0.6f
-                            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                            listener.onSpecial(Special.BACKSPACE); handler.postDelayed(repeat, 420)
-                        }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            v.isPressed = false; v.alpha = 1f; handler.removeCallbacks(repeat)
-                        }
-                    }
-                    true
-                }
-            } else setOnClickListener { v ->
-                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                tap(k, upper)
-            }
         }
+        when (k.kind) {
+            CHAR -> charViews += view to k
+            SHIFT -> { shiftView = view; shiftBg = bg }
+        }
+        // Fire the moment the finger lands (not on release) so typing feels instant.
+        val repeat = object : Runnable {
+            override fun run() { listener.onSpecial(Special.BACKSPACE); handler.postDelayed(this, 50) }
+        }
+        view.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.alpha = 0.55f
+                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    if (k.kind == BACK) { listener.onSpecial(Special.BACKSPACE); handler.postDelayed(repeat, 380) }
+                    else tap(k, (shift || caps) && !symbols && !arabic)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.alpha = 1f; handler.removeCallbacks(repeat) }
+            }
+            true
+        }
+        return view
     }
 
     private fun tap(k: K, upper: Boolean) {
         when (k.kind) {
             CHAR -> {
                 listener.onChar(if (upper) k.ch.uppercaseChar() else k.ch)
-                if (shift && !caps) { shift = false; broadcastMode() }
+                if (shift && !caps) { shift = false; broadcastMode(layer = false) }
             }
             SPACE -> listener.onChar(' ')
             ENTER -> listener.onSpecial(Special.ENTER)
@@ -187,7 +201,7 @@ class GlassKeyboardView(
                     else -> shift = !shift
                 }
                 lastShiftTap = now
-                broadcastMode()
+                broadcastMode(layer = false)
             }
             SYM -> { symbols = !symbols; shift = false; caps = false; broadcastMode() }
             LANG -> { arabic = !arabic; symbols = false; shift = false; caps = false; broadcastMode() }

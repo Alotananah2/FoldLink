@@ -53,7 +53,10 @@ import kotlin.math.ceil
  *  • Real Android widgets: long-press empty space → Add widget.
  *  • Swipe down = notifications.
  */
-class LauncherActivity : Activity() {
+open class LauncherActivity : Activity() {
+    /** true on the wide (stretched) screen: one 8-column home that spans both phones by itself. */
+    protected open val wide = false
+
     data class App(val pkg: String, val label: String, val icon: Drawable?)
 
     companion object { const val HOST_ID = 4096; const val REQ_PICK = 11; const val REQ_CONF = 12 }
@@ -74,11 +77,11 @@ class LauncherActivity : Activity() {
     private var timeView: TextView? = null
     private var dateView: TextView? = null
 
-    private val cols = 4
+    private val cols get() = if (wide) 8 else 4
 
     private val onMsg: (JSONObject) -> Unit = { o ->
         when (o.optString("t")) {
-            "page" -> { page = o.optInt("n"); render() }
+            "page" -> if (!wide) { page = o.optInt("n"); render() }
             "apps_loaded", "pins", "home", "_connected", "_disconnected" -> if (drawer == null) render()
         }
     }
@@ -95,6 +98,8 @@ class LauncherActivity : Activity() {
         window.navigationBarColor = Color.TRANSPARENT
         awm = AppWidgetManager.getInstance(this)
         widgetHost = AppWidgetHost(applicationContext, HOST_ID)
+        if (wide) window.setBackgroundDrawable(GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.rgb(28, 40, 74), Color.rgb(64, 34, 82), Color.rgb(16, 18, 30))))
         frame = FrameLayout(this)
         home = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         frame.addView(home, FrameLayout.LayoutParams(-1, -1))
@@ -130,6 +135,12 @@ class LauncherActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // While the phones are one wide screen, "home" on the real screens means the wide screen.
+        if (!wide) {
+            if (Prefs.isMain(this) && SpanHost.running) { SpanHost.openViewer(this); }
+            else if (!Prefs.isMain(this) && SpanViewActivity.live && !SpanViewActivity.active && Link.connected)
+                startActivity(Intent(this, SpanViewActivity::class.java).putExtra("host", false))
+        }
         Link.listeners.add(onMsg)
         loadLocal()
         if (!Prefs.isMain(this) && Link.connected && RemoteApps.list.isEmpty()) Link.send(Link.msg("apps_req"))
@@ -219,7 +230,7 @@ class LauncherActivity : Activity() {
         val m = PopupMenu(this, anchor)
         m.menu.add(0, 1, 0, if (app.pkg in Prefs.home(this)) "Remove from Home" else "Add to Home")
         m.menu.add(0, 2, 1, if (app.pkg in Prefs.pins(this)) "Remove from dock" else "Add to dock")
-        m.menu.add(0, 5, 2, "⧉ Stretch across both screens")
+        if (!wide) m.menu.add(0, 5, 2, "⧉ Stretch across both screens")
         m.menu.add(0, 3, 2, "App info")
         m.menu.add(0, 4, 3, "Uninstall")
         m.setOnMenuItemClickListener {
@@ -237,7 +248,7 @@ class LauncherActivity : Activity() {
 
     // ---------- home pages ----------
 
-    private val span get() = Link.connected
+    private val span get() = !wide && Link.connected
     private val onLeft get() = Prefs.isLeft(this)
     private val width get() = if (span) cols * 2 else cols
     private fun rowsOn(p: Int) = if (p == 0) 2 else 6
@@ -513,7 +524,7 @@ class LauncherActivity : Activity() {
         }
         webRow.setOnClickListener { webSearch(search.text.toString()) }
         val grid = GridView(this).apply {
-            numColumns = 4; this.adapter = adapter; verticalSpacing = dp(4)
+            numColumns = cols; this.adapter = adapter; verticalSpacing = dp(4)
             onItemClickListener = AdapterView.OnItemClickListener { _, _, p, _ -> launch(shown[p].pkg); closeDrawer() }
             onItemLongClickListener = AdapterView.OnItemLongClickListener { _, v, p, _ -> appMenu(v, shown[p]) {}; true }
         }

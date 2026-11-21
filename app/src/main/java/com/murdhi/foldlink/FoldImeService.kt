@@ -34,23 +34,30 @@ class FoldImeService : InputMethodService() {
 
     override fun onEvaluateFullscreenMode() = false
 
+    private var split = false
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         rebuild()
-        if (Link.connected && Prefs.get(this).getBoolean(Prefs.SPLIT_KB, true)) Link.send(Link.msg("kb_show"))
+        if (split) Link.send(Link.msg("kb_show"))
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
-        if (Link.connected) Link.send(Link.msg("kb_hide"))
+        if (split) Link.send(Link.msg("kb_hide"))
     }
+
+    /** On the wide stretched screen the keyboard is already as wide as both phones. */
+    private fun onWideScreen(): Boolean = try {
+        (window?.window?.decorView?.display?.displayId ?: 0) != 0
+    } catch (_: Throwable) { false }
 
     private fun rebuild() {
         val h = holder ?: return
         h.removeAllViews()
-        val split = Prefs.get(this).getBoolean(Prefs.SPLIT_KB, true)
+        split = Link.connected && Prefs.get(this).getBoolean(Prefs.SPLIT_KB, true) && !onWideScreen()
         val mode = when {
-            !Link.connected || !split -> GlassKeyboardView.Mode.FULL
+            !split -> GlassKeyboardView.Mode.FULL
             Prefs.isLeft(this) -> GlassKeyboardView.Mode.LEFT
             else -> GlassKeyboardView.Mode.RIGHT
         }

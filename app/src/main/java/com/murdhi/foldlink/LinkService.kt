@@ -81,6 +81,7 @@ class LinkService : Service() {
     @Volatile private var servers = listOf<BluetoothServerSocket>()
     @Volatile private var pending: BluetoothSocket? = null
     private var overlay: View? = null
+    private val handler = Handler(Looper.getMainLooper())
     private var suppressScreenUntil = 0L
     private var suppressVolUntil = 0L
 
@@ -233,12 +234,16 @@ class LinkService : Service() {
         when (o.optString("t")) {
             "_connected" -> {
                 if (Prefs.isMain(this)) {
+                    val p = Prefs.get(this)
+                    p.edit().putBoolean(Prefs.EXTEND_PAUSED, false).apply()
+                    if (p.getBoolean(Prefs.ALWAYS_EXTEND, true))
+                        handler.postDelayed({ if (Link.connected && !SpanHost.running) SpanHost.start(this) }, 1500)
                     Link.send(Link.msg("pins", "list" to Prefs.pins(this).joinToString(",")))
                     Link.send(Link.msg("home", "list" to Prefs.home(this).joinToString(",")))
                 }
                 else Link.send(Link.msg("apps_req"))
             }
-            "_disconnected" -> hideOverlay()
+            "_disconnected" -> { hideOverlay(); if (Prefs.isMain(this) && SpanHost.running) SpanHost.stop() }
             "off" -> { gotOff = true; Thread { Link.status = "Other phone powered off → " + PowerOff.shutdown(this) }.start() }
             "screen" -> {
                 suppressScreenUntil = System.currentTimeMillis() + 2500
@@ -271,10 +276,27 @@ class LinkService : Service() {
             }
             "video_open" -> openVideo(this, false)
             "span_req" -> if (Prefs.isMain(this)) SpanHost.start(this, o.optString("p"))
-            "span_start" -> startActivity(Intent(this, SpanViewActivity::class.java)
-                .putExtra("host", false).putExtra("ips", o.optString("ips")).putExtra("port", o.optInt("port"))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+            "span_start" -> {
+                SpanViewActivity.live = true
+                SpanViewActivity.lastIps = o.optString("ips"); SpanViewActivity.lastPort = o.optInt("port")
+                openSpanClient()
+            }
+            "span_stop" -> SpanViewActivity.live = false
         }
+    }
+
+    /** Open the right-half viewer. Uses root so Android's background limits can't block it. */
+    private fun openSpanClient() {
+        Thread {
+            val ok = SpanHost.su("am start -n $packageName/.SpanViewActivity --ez host false " +
+                "--es ips '${SpanViewActivity.lastIps}' --ei port ${SpanViewActivity.lastPort} -f 0x10000000") == 0
+            if (!ok) handler.post {
+                try {
+                    startActivity(Intent(this, SpanViewActivity::class.java).putExtra("host", false)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (_: Exception) {}
+            }
+        }.start()
     }
 
     private fun sendApps() {
