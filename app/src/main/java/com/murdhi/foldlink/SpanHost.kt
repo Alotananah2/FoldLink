@@ -2,8 +2,6 @@ package com.murdhi.foldlink
 
 import android.content.Context
 import android.content.Intent
-import android.net.LocalServerSocket
-import android.net.LocalSocket
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import java.io.BufferedInputStream
@@ -21,7 +19,7 @@ import java.util.concurrent.Executors
 import kotlin.random.Random
 
 /**
- * Runs on the rooted phone 1. Uses the scrcpy server (Apache 2.0, bundled as an asset) to create a
+ * Runs on phone 1 (rooted). Uses the scrcpy server (Apache 2.0, bundled as an asset) to create a
  * hidden virtual screen as wide as both phones, opens an app on it, and streams the picture:
  * phone 1 draws the left half itself, phone 2 gets the stream over Wi-Fi and draws the right half.
  * Touches from both phones are injected back into the app.
@@ -46,9 +44,9 @@ object SpanHost {
     @Volatile var status = ""
 
     private var proc: Process? = null
-    private var local: LocalServerSocket? = null
-    private var video: LocalSocket? = null
-    private var control: LocalSocket? = null
+    private const val BRIDGE_PORT = 47701
+    private var video: Socket? = null
+    private var control: Socket? = null
     @Volatile private var ctrlOut: DataOutputStream? = null
     private var tcp: ServerSocket? = null
     private var client: Socket? = null
@@ -63,15 +61,20 @@ object SpanHost {
         val app = ctx.applicationContext
         Thread {
             try { run(app, pkg) } catch (e: Exception) {
-                if (running) { setStatus("Stretch failed: ${e.message}\n${tail()}"); stop() }
+                if (running) { post("Stretch failed: ${e.message}\n${tail()}"); stop() }
             }
         }.start()
     }
 
-    private fun setStatus(s: String) { status = s; viewer?.onStatus(s) }
+    private fun post(s: String) { status = s; viewer?.onStatus(s) }
 
     private fun addLog(l: String) { synchronized(logLines) { logLines.addLast(l); while (logLines.size > 12) logLines.removeFirst() } }
     private fun tail() = synchronized(logLines) { logLines.joinToString("\n") }
+
+    fun hasRoot(): Boolean = su("true") == 0
+
+    private fun privileged(cmd: String): Process =
+        ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
 
     private fun su(cmd: String): Int = try {
         Runtime.getRuntime().exec(arrayOf("su", "-c", cmd)).waitFor()
@@ -81,11 +84,12 @@ object SpanHost {
 
     @Suppress("DEPRECATION")
     private fun run(ctx: Context, pkg: String) {
-        setStatus("Preparing…")
-        val jar = File(ctx.filesDir, "foldspan.jar")
+        post("Preparing…")
+        if (!hasRoot()) throw Exception("Root access is needed. Allow FoldLink in Magisk (or your root app) and try again")
+        // Put the scrcpy server where the shell user can read it.
+        val jar = File(ctx.getExternalFilesDir(null), "foldspan.jar")
         ctx.assets.open("foldspan-server.jar").use { i -> jar.outputStream().use { i.copyTo(it) } }
-        if (su("cp '${jar.path}' /data/local/tmp/foldspan.jar && chmod 644 /data/local/tmp/foldspan.jar") != 0)
-            throw Exception("Root access is needed on this phone. Allow FoldLink in Magisk")
+        val apk = ctx.applicationInfo.sourceDir
 
         // Virtual screen = two of this phone side by side, rendered at 2/3 size for a smooth stream.
         val dm = DisplayMetrics()
@@ -102,7 +106,7 @@ object SpanHost {
         Link.send(Link.msg("span_start", "ips" to localIps(), "port" to PORT))
         ctx.startActivity(Intent(ctx, SpanViewActivity::class.java)
             .putExtra("host", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        setStatus("Waiting for phone 2 to join over Wi-Fi…")
+        post("Waiting for phone 2 to join over Wi-Fi…")
         val c = try { tcp!!.accept() } catch (e: SocketTimeoutException) { null }
         try { tcp?.close() } catch (_: Exception) {}
         if (c != null) {
@@ -110,39 +114,38 @@ object SpanHost {
             client = c
             clientOut = DataOutputStream(BufferedOutputStream(c.getOutputStream(), 1 shl 16))
             Thread { readClient(c) }.start()
-        } else setStatus("Phone 2 didn't join over Wi-Fi (same Wi-Fi or hotspot?). Showing this half only…")
+        } else post("Phone 2 didn't join over Wi-Fi (same Wi-Fi or hotspot?). Showing this half only…")
         if (!running) return
 
-        // 2) Start the scrcpy server as root, connecting back to us on an abstract socket.
-        val scid = Random.nextInt(0x7fffffff)
-        val name = String.format("scrcpy_%08x", scid)
-        local = LocalServerSocket(name)
-        val cmd = "CLASSPATH=/data/local/tmp/foldspan.jar app_process / com.genymobile.scrcpy.Server $SERVER_VERSION " +
-            String.format("scid=%08x ", scid) +
-            "log_level=info tunnel_forward=false audio=false control=true cleanup=false " +
+        // 2) Start the scrcpy server (via our bridge) with root.
+        val scid = String.format("%08x", Random.nextInt(0x7fffffff))
+        val cmd = "cp '${jar.path}' /data/local/tmp/foldspan.jar && chmod 644 /data/local/tmp/foldspan.jar && " +
+            "CLASSPATH=/data/local/tmp/foldspan.jar:$apk app_process / com.murdhi.foldlink.SpanBridge $BRIDGE_PORT $scid " +
+            "$SERVER_VERSION scid=$scid log_level=info tunnel_forward=false audio=false control=true cleanup=false " +
             "video_codec=h264 video_bit_rate=8000000 max_fps=60 send_device_meta=false send_dummy_byte=false " +
             "new_display=${vw}x${vh}/$dpi vd_system_decorations=false"
-        val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+        val p = privileged(cmd)
         proc = p
         Thread {
             try { p.inputStream.bufferedReader().forEachLine { addLog(it) } } catch (_: Exception) {}
-            if (running) { setStatus("Stretch engine stopped:\n${tail()}"); stop() }
+            if (running) { post("Stretch engine stopped:\n${tail()}"); stop() }
         }.start()
-        setStatus("Opening the app on the stretched screen…")
+        post("Opening the app on the stretched screen…")
 
-        val v = local!!.accept(); video = v
-        val ctl = local!!.accept(); control = ctl
-        ctrlOut = DataOutputStream(BufferedOutputStream(ctl.outputStream))
-        Thread { try { val b = ByteArray(4096); while (ctl.inputStream.read(b) >= 0) {} } catch (_: Exception) {} }.start()
+        // 3) Connect to the bridge: first the video stream, then control.
+        val v = connectBridge(); video = v
+        val ctl = connectBridge(); control = ctl
+        ctrlOut = DataOutputStream(BufferedOutputStream(ctl.getOutputStream()))
+        Thread { try { val b = ByteArray(4096); while (ctl.getInputStream().read(b) >= 0) {} } catch (_: Exception) {} }.start()
 
-        val vin = DataInputStream(BufferedInputStream(v.inputStream, 1 shl 16))
+        val vin = DataInputStream(BufferedInputStream(v.getInputStream(), 1 shl 16))
         val codec = vin.readInt()
         if (codec == 0 || codec == 1) throw Exception("The phone's video encoder refused the stream.\n${tail()}")
         width = vin.readInt(); height = vin.readInt()
         clientOut?.let { o -> try { synchronized(o) { o.writeInt(width); o.writeInt(height); o.flush() } } catch (_: Exception) { clientOut = null } }
         viewer?.onSize(width, height)
         startApp("+$pkg")
-        setStatus("")
+        post("")
 
         while (running) {
             val ptsFlags = vin.readLong()
@@ -159,6 +162,15 @@ object SpanHost {
                 catch (e: Exception) { clientOut = null }
             }
         }
+    }
+
+    private fun connectBridge(): Socket {
+        val until = System.currentTimeMillis() + 15000
+        while (running && System.currentTimeMillis() < until) {
+            try { return Socket().apply { connect(InetSocketAddress("127.0.0.1", BRIDGE_PORT), 1000); tcpNoDelay = true } }
+            catch (_: Exception) { Thread.sleep(300) }
+        }
+        throw Exception("The stretch engine didn't start.\n${tail()}")
     }
 
     /** Messages from phone 2: 1 = touch, 2 = key, 3 = close. */
@@ -213,11 +225,10 @@ object SpanHost {
         if (!running && proc == null) return
         running = false
         listOf(client, video, control).forEach { try { it?.close() } catch (_: Exception) {} }
-        try { local?.close() } catch (_: Exception) {}
         try { tcp?.close() } catch (_: Exception) {}
         try { proc?.destroy() } catch (_: Exception) {}
-        Thread { su("pkill -f foldspan.jar") }.start()
-        proc = null; client = null; clientOut = null; ctrlOut = null; video = null; control = null; local = null; tcp = null
+        Thread { try { if (hasRoot()) su("pkill -f foldspan.jar") } catch (_: Exception) {} }.start()
+        proc = null; client = null; clientOut = null; ctrlOut = null; video = null; control = null; tcp = null
         width = 0; height = 0
         Link.send(Link.msg("span_stop"))
         viewer?.onEnd()
