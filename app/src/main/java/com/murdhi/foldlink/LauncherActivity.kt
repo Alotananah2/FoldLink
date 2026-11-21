@@ -7,11 +7,9 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -75,8 +73,6 @@ class LauncherActivity : Activity() {
         grid = GridView(this).apply {
             numColumns = 4; verticalSpacing = 30; horizontalSpacing = 10; setPadding(0, 30, 0, 30)
             adapter = AppAdapter()
-            setOnItemClickListener { _, _, pos, _ -> launch(shown[pos]) }
-            setOnItemLongClickListener { _, _, pos, _ -> togglePin(shown[pos].pkg); true }
         }
         dock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
@@ -184,10 +180,7 @@ class LauncherActivity : Activity() {
                 text = app.label; setTextColor(Color.WHITE); textSize = 12f; maxLines = 1
                 gravity = Gravity.CENTER; setShadowLayer(6f, 0f, 2f, Color.BLACK)
             })
-            cell.setOnLongClickListener {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.pkg}")))
-                true
-            }
+            cell.setOnLongClickListener { togglePin(app.pkg); true }
             cell.setOnClickListener { launch(app) }
             return cell
         }

@@ -21,7 +21,7 @@ Push this folder to a GitHub repo → **Actions** tab → "Build APK" → downlo
 ## FoldLink Home (launcher)
 Liquid-glass home screen: big clock, link status, app search, app grid and a dock.
 - Setup button 4 → choose **FoldLink Home** as your home app.
-- Long-press an app → opens app info. Tap ⧉ in the dock for FoldLink settings.
+- Long-press an app → add it to (or remove it from) the dock, max 4. Tap ⧉ for FoldLink settings.
 - On the second phone the dock has a ⌨ button that opens the Bluetooth keyboard.
 
 ## FoldLink Keyboard (system keyboard)
