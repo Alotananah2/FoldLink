@@ -93,6 +93,7 @@ class MainActivity : Activity() {
         col.addView(text("Run", 20f))
         col.addView(button("Start / restart link") { LinkService.restart(this) })
         col.addView(button("Stop link") { stopService(Intent(this, LinkService::class.java)) })
+        col.addView(button("⧉ Stretch an app across both screens") { pickStretchApp() })
         col.addView(button("▶ Play a video across both screens") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("video/*"), 7)
         })
@@ -110,6 +111,19 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 7 && resultCode == RESULT_OK) data?.data?.let { LinkService.shareVideo(this, it) }
+    }
+
+    private fun pickStretchApp() {
+        val pm = packageManager
+        val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }.distinctBy { it.first }.sortedBy { it.second.lowercase() }
+        android.app.AlertDialog.Builder(this).setTitle("Stretch which app?")
+            .setItems(apps.map { it.second }.toTypedArray()) { _, i ->
+                val pkg = apps[i].first
+                if (Prefs.isMain(this)) SpanHost.start(this, pkg)
+                else if (Link.connected) Link.send(Link.msg("span_req", "p" to pkg))
+                else Toast.makeText(this, "Link the phones first", Toast.LENGTH_SHORT).show()
+            }.show()
     }
 
     private fun tick() {

@@ -270,6 +270,10 @@ class LinkService : Service() {
                 Link.send(Link.msg("video_open"))
             }
             "video_open" -> openVideo(this, false)
+            "span_req" -> if (Prefs.isMain(this)) SpanHost.start(this, o.optString("p"))
+            "span_start" -> startActivity(Intent(this, SpanViewActivity::class.java)
+                .putExtra("host", false).putExtra("ips", o.optString("ips")).putExtra("port", o.optInt("port"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
         }
     }
 

@@ -17,3 +17,10 @@ Two phones → one foldable. Install the same APK on both phones (Actions tab �
 
 ## Limits
 Android doesn't let an app stretch *other* apps (like TikTok) across two separate phones. That needs a custom ROM. The span video player is the in-app version.
+
+## Stretch any app across both phones (phone 1 must be rooted)
+Long-press an app → **⧉ Stretch across both screens**, or use the button in FoldLink settings.
+Phone 1 opens the app on a hidden screen as wide as both phones. Phone 1 shows the left half, phone 2 shows the right half, and you can touch both.
+- The video goes over **Wi-Fi**: same Wi-Fi network, or phone 2 joins phone 1's hotspot. Bluetooth still handles everything else.
+- Sound plays from phone 1. ◀ = back, ✕ = stop.
+- Uses the [scrcpy](https://github.com/Genymobile/scrcpy) server (Apache License 2.0), downloaded at build time.

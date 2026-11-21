@@ -183,6 +183,15 @@ class LauncherActivity : Activity() {
         }
     }
 
+    private fun stretch(pkg: String) {
+        when {
+            Prefs.isMain(this) -> SpanHost.start(this, pkg)
+            Link.connected -> { Link.send(Link.msg("span_req", "p" to pkg)); Toast.makeText(this, "Asking phone 1 to stretch it…", Toast.LENGTH_SHORT).show() }
+            else -> Toast.makeText(this, "Link the phones first", Toast.LENGTH_SHORT).show()
+        }
+        closeDrawer()
+    }
+
     private fun saveList(key: String, list: List<String>) {
         val joined = list.joinToString(",")
         Prefs.get(this).edit().putString(key, joined).apply()
@@ -210,6 +219,7 @@ class LauncherActivity : Activity() {
         val m = PopupMenu(this, anchor)
         m.menu.add(0, 1, 0, if (app.pkg in Prefs.home(this)) "Remove from Home" else "Add to Home")
         m.menu.add(0, 2, 1, if (app.pkg in Prefs.pins(this)) "Remove from dock" else "Add to dock")
+        m.menu.add(0, 5, 2, "⧉ Stretch across both screens")
         m.menu.add(0, 3, 2, "App info")
         m.menu.add(0, 4, 3, "Uninstall")
         m.setOnMenuItemClickListener {
@@ -218,6 +228,7 @@ class LauncherActivity : Activity() {
                 2 -> toggleDock(app.pkg)
                 3 -> startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.pkg}")))
                 4 -> startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:${app.pkg}")))
+                5 -> stretch(app.pkg)
             }
             onChange(); true
         }
