@@ -106,7 +106,7 @@ object SpanHost {
     @Suppress("DEPRECATION")
     private fun run(ctx: Context, pkg: String?) {
         post("Preparing…")
-        if (findSu() == null) throw Exception("No root for FoldLink. Open KernelSU → Superuser → turn on FoldLink, then try again")
+        val hasRoot = findSu() != null
         val jar = File(ctx.filesDir, "foldspan.jar")
         ctx.assets.open("foldspan-server.jar").use { i -> jar.outputStream().use { i.copyTo(it) } }
         val apk = ctx.applicationInfo.sourceDir
@@ -127,7 +127,8 @@ object SpanHost {
         Link.send(Link.msg("span_start", "ips" to localIps(), "port" to PORT))
         openViewer(ctx)
 
-        su("pkill -f foldspan.jar")
+        if (hasRoot) su("pkill -f foldspan.jar")
+        bridgeWaitMs = 15_000L
         val scid = String.format("%08x", Random.nextInt(0x7fffffff))
         val cmd = "cp '${jar.path}' /data/local/tmp/foldspan.jar && chmod 644 /data/local/tmp/foldspan.jar && " +
             "CLASSPATH=/data/local/tmp/foldspan.jar:$apk app_process / com.murdhi.foldlink.SpanBridge $BRIDGE_PORT $scid " +
@@ -135,12 +136,20 @@ object SpanHost {
             "video_codec=h264 video_bit_rate=10000000 max_fps=60 send_device_meta=false send_dummy_byte=false " +
             "new_display=${vw}x${vh}/$dpi vd_system_decorations=true display_ime_policy=local"
         addLog("$ $cmd")
-        val p = ProcessBuilder(findSu()!!, "-c", cmd).redirectErrorStream(true).start()
-        proc = p
-        Thread {
-            try { p.inputStream.bufferedReader().forEachLine { addLog(it) } } catch (_: Exception) {}
-            if (running) { post("Stretch engine stopped:\n${tail()}"); stop() }
-        }.start()
+        if (hasRoot) {
+            val p = ProcessBuilder(findSu()!!, "-c", cmd).redirectErrorStream(true).start()
+            proc = p
+            Thread {
+                try { p.inputStream.bufferedReader().forEachLine { addLog(it) } } catch (_: Exception) {}
+                if (running) { post("Stretch engine stopped:\n${tail()}"); stop() }
+            }.start()
+        } else {
+            // FoldLink can't get root itself → let Termux (which has root) run the engine.
+            val script = File(ctx.getExternalFilesDir(null), "foldspan.sh")
+            script.writeText("#!/system/bin/sh\n$cmd\n")
+            post("FoldLink has no root, so start it from Termux.\nIn Termux, run:\n\nsu -c sh ${script.path}\n\n(Waiting 2 minutes…)")
+            bridgeWaitMs = 120_000
+        }
         post("Starting the wide screen…")
 
         val v = connectBridge(); video = v
@@ -191,6 +200,11 @@ object SpanHost {
         if (id < 0) return
         val r = su("am start --display $id -n ${ctx.packageName}/.WideHomeActivity")
         addLog("open wide home on display $id → exit $r")
+        if (r != 0) try {
+            val opts = android.app.ActivityOptions.makeBasic().setLaunchDisplayId(id)
+            ctx.startActivity(Intent(ctx, WideHomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), opts.toBundle())
+            addLog("opened wide home without root")
+        } catch (e: Exception) { addLog("wide home without root failed: ${e.message}") }
     }
 
     private fun sendClient(block: (DataOutputStream) -> Unit) {
@@ -219,8 +233,10 @@ object SpanHost {
         }
     }
 
+    @Volatile private var bridgeWaitMs = 15_000L
+
     private fun connectBridge(): Socket {
-        val until = System.currentTimeMillis() + 15000
+        val until = System.currentTimeMillis() + bridgeWaitMs
         while (running && System.currentTimeMillis() < until) {
             try { return Socket().apply { connect(InetSocketAddress("127.0.0.1", BRIDGE_PORT), 1000); tcpNoDelay = true } }
             catch (_: Exception) { Thread.sleep(300) }
