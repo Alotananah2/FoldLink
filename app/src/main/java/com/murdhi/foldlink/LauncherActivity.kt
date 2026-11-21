@@ -117,7 +117,7 @@ class LauncherActivity : Activity() {
         else local
 
     private val span get() = Link.connected
-    private val left get() = Prefs.isLeft(this)
+    private val onLeft get() = Prefs.isLeft(this)
     private fun perPage() = if (span) cols * 2 * rowsN else cols * rowsN
     private fun pages() = maxOf(1, ceil(apps().size / perPage().toDouble()).toInt())
 
@@ -140,7 +140,7 @@ class LauncherActivity : Activity() {
             setPadding(dp(14), dp(18), dp(14), 0)
             setOnLongClickListener { startActivity(Intent(this@LauncherActivity, MainActivity::class.java)); true }
         }
-        val showTime = !span || left
+        val showTime = !span || onLeft
         timeView = if (showTime) TextView(this).apply {
             textSize = 64f; setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             setShadowLayer(8f, 0f, 2f, Color.argb(90, 0, 0, 0))
@@ -164,7 +164,7 @@ class LauncherActivity : Activity() {
         for (r in 0 until rowsN) {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             for (c in 0 until cols) {
-                val idx = if (span) page * perPage() + r * cols * 2 + c + (if (left) 0 else cols)
+                val idx = if (span) page * perPage() + r * cols * 2 + c + (if (onLeft) 0 else cols)
                           else page * perPage() + r * cols + c
                 val cell: View = if (idx < list.size) appCell(list[idx], true) else View(this)
                 row.addView(cell, LinearLayout.LayoutParams(0, -1, 1f))
@@ -175,7 +175,7 @@ class LauncherActivity : Activity() {
 
         // Page dots
         val dots = LinearLayout(this).apply {
-            gravity = if (!span) Gravity.CENTER else if (left) Gravity.END else Gravity.START
+            gravity = if (!span) Gravity.CENTER else if (onLeft) Gravity.END else Gravity.START
             setPadding(0, dp(10), 0, dp(14))
         }
         for (p in 0 until pages()) dots.addView(View(this).apply {
@@ -186,9 +186,9 @@ class LauncherActivity : Activity() {
 
         // Dock (no background, like One UI). 6 slots when unfolded, 3 per phone.
         val pins = Prefs.pins(this).mapNotNull { p -> list.find { it.pkg == p } }
-        val mine = if (span) (if (left) pins.take(3) else pins.drop(3).take(3)) else pins.take(4)
+        val mine = if (span) (if (onLeft) pins.take(3) else pins.drop(3).take(3)) else pins.take(4)
         val dock = LinearLayout(this).apply {
-            gravity = if (!span) Gravity.CENTER else if (left) Gravity.END else Gravity.START
+            gravity = if (!span) Gravity.CENTER else if (onLeft) Gravity.END else Gravity.START
         }
         mine.forEach { dock.addView(appCell(it, false), LinearLayout.LayoutParams(dp(84), dp(76))) }
         if (pins.isEmpty() && (!span || left)) dock.addView(TextView(this).apply {
