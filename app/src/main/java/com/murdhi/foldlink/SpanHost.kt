@@ -96,10 +96,10 @@ object SpanHost {
         return null
     }
 
-    fun su(cmd: String): Int = try {
+    fun su(cmd: String): Int {
         val b = findSu() ?: return -1
-        Runtime.getRuntime().exec(arrayOf(b, "-c", cmd)).waitFor()
-    } catch (e: Exception) { -1 }
+        return try { Runtime.getRuntime().exec(arrayOf(b, "-c", cmd)).waitFor() } catch (e: Exception) { -1 }
+    }
 
     private fun align8(v: Int) = v / 8 * 8
 
