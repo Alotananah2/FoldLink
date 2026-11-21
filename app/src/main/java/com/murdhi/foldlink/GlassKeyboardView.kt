@@ -77,7 +77,7 @@ class GlassKeyboardView(
     /** Rows for one half (left or right). FULL is built by joining both halves. */
     private fun half(left: Boolean): List<List<K>> = when {
         symbols -> if (left) listOf(
-            chars("12345"), chars("@#$_&"), chars("%=*\"'"),
+            chars("12345"), chars("@#\$_&"), chars("%=*\"'"),
             listOf(K("ABC", 1.4f, SYM), K(if (arabic) "EN" else "ع", 1f, LANG), K(",", 0.9f, CHAR, ','), K("", 1.7f, SPACE))
         ) else listOf(
             chars("67890"), chars("-+()/"), chars(":;!?") + K("⌫", 1f, BACK),
