@@ -4,21 +4,64 @@ import android.inputmethodservice.InputMethodService
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.FrameLayout
+import org.json.JSONObject
 
-/** "FoldLink Keyboard" — a normal Android keyboard (English + Arabic) with the glass look. */
+/**
+ * FoldLink Keyboard. When the phones are linked, this phone shows its half and the
+ * other phone pops up the other half; keys typed there come back here.
+ */
 class FoldImeService : InputMethodService() {
-    override fun onCreateInputView(): View =
-        GlassKeyboardView(this, allowArabic = true, listener = object : GlassKeyboardView.Listener {
-            override fun onChar(c: Char) { currentInputConnection?.commitText(c.toString(), 1) }
-            override fun onSpecial(k: GlassKeyboardView.Special) {
-                when (k) {
-                    GlassKeyboardView.Special.BACKSPACE -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
-                    GlassKeyboardView.Special.LEFT -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
-                    GlassKeyboardView.Special.RIGHT -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_RIGHT)
-                    GlassKeyboardView.Special.ENTER -> enter()
-                }
-            }
-        })
+    private var holder: FrameLayout? = null
+
+    private val keys = object : GlassKeyboardView.Listener {
+        override fun onChar(c: Char) { currentInputConnection?.commitText(c.toString(), 1) }
+        override fun onSpecial(k: GlassKeyboardView.Special) { special(k) }
+    }
+
+    private val onMsg: (JSONObject) -> Unit = { o ->
+        when (o.optString("t")) {
+            "key" -> currentInputConnection?.commitText(o.optString("c"), 1)
+            "special" -> try { special(GlassKeyboardView.Special.valueOf(o.optString("k"))) } catch (_: Exception) {}
+            "_connected", "_disconnected" -> if (isInputViewShown) rebuild()
+        }
+    }
+
+    override fun onCreate() { super.onCreate(); Link.listeners.add(onMsg) }
+    override fun onDestroy() { Link.listeners.remove(onMsg); super.onDestroy() }
+
+    override fun onCreateInputView(): View = FrameLayout(this).also { holder = it }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        rebuild()
+        if (Link.connected) Link.send(Link.msg("kb_show"))
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        if (Link.connected) Link.send(Link.msg("kb_hide"))
+    }
+
+    private fun rebuild() {
+        val h = holder ?: return
+        h.removeAllViews()
+        val mode = when {
+            !Link.connected -> GlassKeyboardView.Mode.FULL
+            Prefs.isLeft(this) -> GlassKeyboardView.Mode.LEFT
+            else -> GlassKeyboardView.Mode.RIGHT
+        }
+        h.addView(GlassKeyboardView(this, mode, keys))
+    }
+
+    private fun special(k: GlassKeyboardView.Special) {
+        when (k) {
+            GlassKeyboardView.Special.BACKSPACE -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+            GlassKeyboardView.Special.LEFT -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT)
+            GlassKeyboardView.Special.RIGHT -> sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_RIGHT)
+            GlassKeyboardView.Special.ENTER -> enter()
+        }
+    }
 
     private fun enter() {
         val info = currentInputEditorInfo

@@ -1,29 +1,19 @@
 # FoldLink
 
-Two phones, one foldable. Install the same APK on both.
+Two phones → one foldable. Install the same APK on both phones (Actions tab → latest run → FoldLink-apk).
 
-## Get the APK
-Push this folder to a GitHub repo → **Actions** tab → "Build APK" → download `FoldLink-apk`.
+## Setup (both phones)
+1. Pair the phones in normal Bluetooth settings.
+2. Open FoldLink. Pick **Main phone** on phone 1 and **Second phone** on phone 2. Then pick the other phone in the list.
+3. Do setup steps 1–7.
+4. Tap **Start / restart link** on phone 2 first, then on phone 1. Status should say **Connected ✓**.
 
-## Setup
-1. Pair the two phones in normal Bluetooth settings.
-2. On both: open FoldLink → tap the 3 setup buttons → pick the other phone in the list.
-3. Phone 1: choose **Main phone**. Phone 2: choose **Second phone**.
-4. Tap **Start link** on phone 2 first, then on phone 1. Status should say "Connected".
-5. On phone 2, tap **Open keyboard**. Phone 1 sees it as a real Bluetooth keyboard and types into any app.
+## What it does
+- **Home screen:** One UI–style. When linked, the grid is 8 columns wide across both screens and swiping moves both. The clock is on the left and the date on the right. The dock has 6 slots, 3 per phone (long-press an app). Hold the clock to open settings.
+- **Keyboard:** Set FoldLink Keyboard as default on both phones. Typing on either phone splits the keyboard: left half on the left phone, right half on the right phone. Has English and Arabic (ع).
+- **Power button:** Turning either screen off turns the other one off. Turning one on wakes the other. Shutting one phone down powers off the other **if rooted**, otherwise it locks it.
+- **Volume:** Volume buttons on either phone change both.
+- **Span video:** Pick a video. It's sent over Bluetooth (slow for big files) and plays stretched across both screens. Tap to play or pause on both.
 
-## Power off
-- Phone 1 sends "OFF" over Bluetooth the moment it starts shutting down.
-- Phone 2 really powers off **only if rooted** (`su -c reboot -p`). Android doesn't let normal apps shut the phone down.
-- Without root it turns the screen off and locks instead (step 2 of setup).
-- Optional: "Lock 2nd phone when main screen turns off". This makes the power button control both screens.
-
-## FoldLink Home (launcher)
-Liquid-glass home screen: big clock, link status, app search, app grid and a dock.
-- Setup button 4 → choose **FoldLink Home** as your home app.
-- Long-press an app → add it to (or remove it from) the dock, max 4. Tap ⧉ for FoldLink settings.
-- On the second phone the dock has a ⌨ button that opens the Bluetooth keyboard.
-
-## FoldLink Keyboard (system keyboard)
-A normal Android keyboard with the same glass look, English + Arabic (ع button).
-Setup button 5 → turn on **FoldLink Keyboard**, then pick it from the keyboard switcher.
+## Limits
+Android doesn't let an app stretch *other* apps (like TikTok) across two separate phones. That needs a custom ROM. The span video player is the in-app version.
