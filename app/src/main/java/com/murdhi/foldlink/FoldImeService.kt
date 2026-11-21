@@ -78,8 +78,8 @@ class FoldImeService : InputMethodService() {
         val info = currentInputEditorInfo
         val action = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
         val multiLine = ((info?.inputType ?: 0) and EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE) != 0
-        if (!multiLine && action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED)
-            currentInputConnection?.performEditorAction(action)
+        if (!multiLine && action != EditorInfo.IME_ACTION_NONE)
+            currentInputConnection?.performEditorAction(if (action == EditorInfo.IME_ACTION_UNSPECIFIED) EditorInfo.IME_ACTION_DONE else action)
         else sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
     }
 }

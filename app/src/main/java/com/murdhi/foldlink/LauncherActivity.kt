@@ -539,8 +539,17 @@ open class LauncherActivity : Activity() {
         box.animate().alpha(1f).translationY(0f).setDuration(180).start()
         drawer = box
         if (focusSearch) {
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            search.isFocusableInTouchMode = true
+            search.postDelayed({
+                search.requestFocus()
+                getSystemService(InputMethodManager::class.java).showSoftInput(search, InputMethodManager.SHOW_IMPLICIT)
+            }, 300)
+        }
+        search.setOnClickListener {
             search.requestFocus()
-            search.postDelayed({ getSystemService(InputMethodManager::class.java).showSoftInput(search, 0) }, 150)
+            getSystemService(InputMethodManager::class.java).showSoftInput(search, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 
@@ -548,6 +557,7 @@ open class LauncherActivity : Activity() {
         val d = drawer ?: return
         drawer = null
         currentFocus?.let { getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(it.windowToken, 0) }
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         d.animate().alpha(0f).translationY(dpf(60f)).setDuration(150).withEndAction { frame.removeView(d) }.start()
         render()
     }
