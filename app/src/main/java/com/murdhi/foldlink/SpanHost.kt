@@ -75,8 +75,8 @@ object SpanHost {
             .putExtra("host", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
 
-    private fun post(s: String) { status = s; viewer?.onStatus(s) }
-    private fun addLog(l: String) { synchronized(logLines) { logLines.addLast(l); while (logLines.size > 14) logLines.removeFirst() } }
+    private fun post(s: String) { status = s; if (s.isNotEmpty()) android.util.Log.i("FoldSpan", "status: $s"); viewer?.onStatus(s) }
+    private fun addLog(l: String) { android.util.Log.i("FoldSpan", l); synchronized(logLines) { logLines.addLast(l); while (logLines.size > 14) logLines.removeFirst() } }
     fun tail() = synchronized(logLines) { logLines.joinToString("\n") }
 
     fun su(cmd: String): Int = try { Runtime.getRuntime().exec(arrayOf("su", "-c", cmd)).waitFor() } catch (e: Exception) { -1 }
@@ -133,6 +133,7 @@ object SpanHost {
         if (codec == 0 || codec == 1) throw Exception("The video encoder refused the stream.\n${tail()}")
         sendClient { it.writeInt(codec) }
         if (pkg != null) startApp("+$pkg")
+        Thread { openWideHome(ctx) }.start()
         post("")
 
         while (running) {
@@ -153,6 +154,23 @@ object SpanHost {
             viewer?.onPacket(data, pts, config, key)
             sendClient { it.writeLong(head); it.writeInt(n); it.write(data) }
         }
+    }
+
+    /** Put FoldLink's wide home screen on the new wide screen (Samsung doesn't do it by itself). */
+    private fun openWideHome(ctx: Context) {
+        val dm = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)
+        var id = -1
+        repeat(20) {
+            if (id < 0) {
+                id = dm.displays.filter { it.displayId != 0 && it.name.contains("scrcpy", true) }
+                    .maxByOrNull { it.displayId }?.displayId ?: -1
+                if (id < 0) Thread.sleep(250)
+            }
+        }
+        addLog("wide display id = $id")
+        if (id < 0) return
+        val r = su("am start --display $id -n ${ctx.packageName}/.WideHomeActivity")
+        addLog("open wide home on display $id → exit $r")
     }
 
     private inline fun sendClient(block: (DataOutputStream) -> Unit) {
