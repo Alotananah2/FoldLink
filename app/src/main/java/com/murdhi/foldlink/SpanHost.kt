@@ -107,7 +107,8 @@ object SpanHost {
     private fun run(ctx: Context, pkg: String?) {
         post("Preparing…")
         val hasRoot = findSu() != null
-        val jar = File(ctx.filesDir, "foldspan.jar")
+        // Keep the engine on shared storage so root (even from Termux) can always read it.
+        val jar = File(ctx.getExternalFilesDir(null), "foldspan.jar")
         ctx.assets.open("foldspan-server.jar").use { i -> jar.outputStream().use { i.copyTo(it) } }
         val apk = ctx.applicationInfo.sourceDir
 
@@ -130,7 +131,7 @@ object SpanHost {
         if (hasRoot) su("pkill -f foldspan.jar")
         bridgeWaitMs = 15_000L
         val scid = String.format("%08x", Random.nextInt(0x7fffffff))
-        val cmd = "cp '${jar.path}' /data/local/tmp/foldspan.jar && chmod 644 /data/local/tmp/foldspan.jar && " +
+        val cmd = "cp '${jar.path.replace("/storage/emulated/", "/data/media/")}' /data/local/tmp/foldspan.jar && chmod 644 /data/local/tmp/foldspan.jar && " +
             "CLASSPATH=/data/local/tmp/foldspan.jar:$apk app_process / com.murdhi.foldlink.SpanBridge $BRIDGE_PORT $scid " +
             "$SERVER_VERSION scid=$scid log_level=info tunnel_forward=false audio=false control=true cleanup=false " +
             "video_codec=h264 video_bit_rate=10000000 max_fps=60 send_device_meta=false send_dummy_byte=false " +
