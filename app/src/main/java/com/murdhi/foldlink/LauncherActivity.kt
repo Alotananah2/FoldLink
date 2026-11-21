@@ -191,7 +191,7 @@ class LauncherActivity : Activity() {
             gravity = if (!span) Gravity.CENTER else if (onLeft) Gravity.END else Gravity.START
         }
         mine.forEach { dock.addView(appCell(it, false), LinearLayout.LayoutParams(dp(84), dp(76))) }
-        if (pins.isEmpty() && (!span || left)) dock.addView(TextView(this).apply {
+        if (pins.isEmpty() && (!span || onLeft)) dock.addView(TextView(this).apply {
             text = "Long-press an app to add it to the dock"; textSize = 12f; setTextColor(Color.argb(200, 255, 255, 255))
         })
         root.addView(dock, LinearLayout.LayoutParams(-1, dp(80)))
