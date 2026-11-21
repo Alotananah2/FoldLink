@@ -123,7 +123,7 @@ class MainActivity : Activity() {
 
     private fun askPermissions() {
         val p = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 31) p += Manifest.permission.BLUETOOTH_CONNECT
+        if (Build.VERSION.SDK_INT >= 31) { p += Manifest.permission.BLUETOOTH_CONNECT; p += Manifest.permission.BLUETOOTH_SCAN }
         if (Build.VERSION.SDK_INT >= 33) p += Manifest.permission.POST_NOTIFICATIONS
         if (p.isNotEmpty()) requestPermissions(p.toTypedArray(), 1)
     }

@@ -154,7 +154,7 @@ class LinkService : Service() {
                 if (!adapter.isEnabled) throw Exception("Bluetooth is off. Turn it on")
                 if (Prefs.isMain(this)) connectToSecond(adapter) else waitForMain(adapter)
             } catch (e: SecurityException) {
-                Link.status = "Bluetooth permission missing. Tap setup step 1"
+                Link.status = "Bluetooth (Nearby devices) permission missing. Tap setup step 1. (${e.message})"
             } catch (e: Exception) {
                 if (running) Link.status = "Not connected, retrying… ${e.message}"
             }
@@ -169,7 +169,7 @@ class LinkService : Service() {
         val dev = adapter.getRemoteDevice(addr)
         val name = dev.name ?: addr
         if (dev.bondState != BluetoothDevice.BOND_BONDED) throw Exception("$name isn't paired. Pair it in Bluetooth settings")
-        adapter.cancelDiscovery()
+        try { adapter.cancelDiscovery() } catch (_: Exception) {}
         var last: Exception? = null
         for ((kind, make) in listOf<Pair<String, () -> BluetoothSocket>>(
             "fast" to { dev.createInsecureRfcommSocketToServiceRecord(Link.LINK_UUID) },
@@ -232,7 +232,10 @@ class LinkService : Service() {
     private fun handle(o: JSONObject) {
         when (o.optString("t")) {
             "_connected" -> {
-                if (Prefs.isMain(this)) Link.send(Link.msg("pins", "list" to Prefs.pins(this).joinToString(",")))
+                if (Prefs.isMain(this)) {
+                    Link.send(Link.msg("pins", "list" to Prefs.pins(this).joinToString(",")))
+                    Link.send(Link.msg("home", "list" to Prefs.home(this).joinToString(",")))
+                }
                 else Link.send(Link.msg("apps_req"))
             }
             "_disconnected" -> hideOverlay()
@@ -258,6 +261,7 @@ class LinkService : Service() {
             "apps_req" -> Thread { sendApps() }.start()
             "apps" -> { val arr = o.getJSONArray("list"); Thread { RemoteApps.load(arr) }.start() }
             "pins" -> Prefs.get(this).edit().putString(Prefs.PINS, o.optString("list")).apply()
+            "home" -> Prefs.get(this).edit().putString(Prefs.HOME, o.optString("list")).apply()
             "video_offer" -> Thread { receiveVideo(o.optLong("size")) }.start()
             "video_ready" -> if (pendingShare) {
                 pendingShare = false

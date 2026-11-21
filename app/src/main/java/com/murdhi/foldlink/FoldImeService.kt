@@ -32,10 +32,12 @@ class FoldImeService : InputMethodService() {
 
     override fun onCreateInputView(): View = FrameLayout(this).also { holder = it }
 
+    override fun onEvaluateFullscreenMode() = false
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         rebuild()
-        if (Link.connected) Link.send(Link.msg("kb_show"))
+        if (Link.connected && Prefs.get(this).getBoolean(Prefs.SPLIT_KB, true)) Link.send(Link.msg("kb_show"))
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -46,12 +48,14 @@ class FoldImeService : InputMethodService() {
     private fun rebuild() {
         val h = holder ?: return
         h.removeAllViews()
+        val split = Prefs.get(this).getBoolean(Prefs.SPLIT_KB, true)
         val mode = when {
-            !Link.connected -> GlassKeyboardView.Mode.FULL
+            !Link.connected || !split -> GlassKeyboardView.Mode.FULL
             Prefs.isLeft(this) -> GlassKeyboardView.Mode.LEFT
             else -> GlassKeyboardView.Mode.RIGHT
         }
-        h.addView(GlassKeyboardView(this, mode, keys))
+        h.addView(GlassKeyboardView(this, mode, keys),
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
     }
 
     private fun special(k: GlassKeyboardView.Special) {

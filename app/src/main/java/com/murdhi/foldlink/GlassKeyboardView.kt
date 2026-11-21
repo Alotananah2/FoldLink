@@ -1,17 +1,22 @@
 package com.murdhi.foldlink
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Samsung-style keyboard. FULL = whole keyboard on one phone.
- * LEFT / RIGHT = one half each, so together the two phones make one wide keyboard.
+ * Samsung-style keyboard.
+ * FULL  = whole keyboard on one phone.
+ * LEFT / RIGHT = Galaxy Fold–style split: left half on the left phone, right half on the right phone.
  */
 class GlassKeyboardView(
     ctx: Context,
@@ -23,9 +28,16 @@ class GlassKeyboardView(
     enum class Special { BACKSPACE, ENTER, LEFT, RIGHT }
     interface Listener { fun onChar(c: Char); fun onSpecial(k: Special) }
 
+    /** One key: text to show, width in key-units, and what it does. */
+    private class K(val label: String, val w: Float = 1f, val kind: Int = CHAR, val ch: Char = ' ')
+
     companion object {
-        // Shared state so both halves always show the same layer (shift / symbols / Arabic).
+        private const val CHAR = 0; private const val SHIFT = 1; private const val BACK = 2
+        private const val ENTER = 3; private const val SYM = 4; private const val LANG = 5
+        private const val SPACE = 6; private const val GAP = 7
+
         var shift = false
+        var caps = false
         var symbols = false
         var arabic = false
         private val live = mutableSetOf<GlassKeyboardView>()
@@ -36,95 +48,149 @@ class GlassKeyboardView(
             hooked = true
             Link.listeners.add { o ->
                 if (o.optString("t") == "kb_mode") {
-                    shift = o.optBoolean("shift"); symbols = o.optBoolean("symbols"); arabic = o.optBoolean("arabic")
+                    shift = o.optBoolean("shift"); caps = o.optBoolean("caps")
+                    symbols = o.optBoolean("symbols"); arabic = o.optBoolean("arabic")
                     live.toList().forEach { it.build() }
                 }
             }
         }
-
-        val LETTERS = listOf("12345" to "67890", "qwert" to "yuiop", "asdfg" to "hjkl", "zxcv" to "bnm")
-        val SYMS = listOf("12345" to "67890", "!@#$%" to "^&*()", "-_=+[" to "]{};:", "'\",.<" to ">/?\\|")
-        val ARABIC = listOf("١٢٣٤٥" to "٦٧٨٩٠", "ضصثقف" to "غعهخحج", "شسيبل" to "اتنمكط", "ئءؤرى" to "ةوزظدذ")
     }
+
+    private val handler = Handler(Looper.getMainLooper())
 
     init {
         hook()
         orientation = VERTICAL
-        setBackgroundColor(Color.rgb(18, 19, 22))
-        setPadding(dp(4), dp(6), dp(4), dp(10))
+        setBackgroundColor(Color.rgb(24, 25, 28))
+        setPadding(dp(3), dp(6), dp(3), dp(8))
         build()
     }
 
     override fun onAttachedToWindow() { super.onAttachedToWindow(); live.add(this) }
-    override fun onDetachedFromWindow() { live.remove(this); super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() { live.remove(this); handler.removeCallbacksAndMessages(null); super.onDetachedFromWindow() }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-    private fun changeMode() {
-        build()
-        live.filter { it !== this }.forEach { it.build() }
-        if (mode != Mode.FULL)
-            Link.send(Link.msg("kb_mode", "shift" to shift, "symbols" to symbols, "arabic" to arabic))
+    private fun chars(s: String) = s.map { K(it.toString(), 1f, CHAR, it) }
+    private fun gap(w: Float) = K("", w, GAP)
+
+    /** Rows for one half (left or right). FULL is built by joining both halves. */
+    private fun half(left: Boolean): List<List<K>> = when {
+        symbols -> if (left) listOf(
+            chars("12345"), chars("@#$_&"), chars("%=*\"'"),
+            listOf(K("ABC", 1.4f, SYM), K(if (arabic) "EN" else "ع", 1f, LANG), K(",", 0.9f, CHAR, ','), K("", 1.7f, SPACE))
+        ) else listOf(
+            chars("67890"), chars("-+()/"), chars(":;!?") + K("⌫", 1f, BACK),
+            listOf(K("", 2.5f, SPACE), K(".", 1f, CHAR, '.'), K("↵", 1.5f, ENTER))
+        )
+        arabic -> if (left) listOf(
+            chars("ضصثقف"), chars("شسيبل"), chars("ءظطذد"),
+            listOf(K("!#1", 1.4f, SYM), K("EN", 1f, LANG), K("،", 0.9f, CHAR, '،'), K("عربي", 1.7f, SPACE))
+        ) else listOf(
+            chars("غعهخحج"), chars("اتنمكة"), chars("زروىئ") + K("⌫", 1.2f, BACK),
+            listOf(K("", 2.5f, SPACE), K(".", 1f, CHAR, '.'), K("↵", 1.5f, ENTER))
+        )
+        else -> if (left) listOf(
+            chars("qwert"), chars("asdfg"), listOf(K(if (caps) "⇪" else "⇧", 1f, SHIFT)) + chars("zxcv"),
+            listOf(K("!#1", 1.4f, SYM), K("ع", 1f, LANG), K(",", 0.9f, CHAR, ','), K("English", 1.7f, SPACE))
+        ) else listOf(
+            chars("yuiop"), listOf(gap(0.5f)) + chars("hjkl") + gap(0.5f), chars("bnm") + K("⌫", 2f, BACK),
+            listOf(K("", 2.5f, SPACE), K(".", 1f, CHAR, '.'), K("↵", 1.5f, ENTER))
+        )
+    }
+
+    private fun rows(): List<List<K>> = when (mode) {
+        Mode.LEFT -> half(true)
+        Mode.RIGHT -> half(false)
+        Mode.FULL -> half(true).zip(half(false)) { a, b ->
+            // merge the two halves; join the two space bars into one
+            val l = a.toMutableList(); val r = b.toMutableList()
+            val ls = l.lastOrNull(); val rs = r.firstOrNull()
+            if (ls?.kind == SPACE && rs?.kind == SPACE) { l.removeAt(l.size - 1); r[0] = K(ls.label, ls.w + rs.w, SPACE) }
+            l + r
+        }
     }
 
     fun build() {
         removeAllViews()
-        val rows = when { symbols -> SYMS; arabic -> ARABIC; else -> LETTERS }
-        val canShift = !symbols && !arabic
-        rows.forEachIndexed { i, (l, r) ->
-            val items = mutableListOf<View>()
-            if (i == 3 && canShift && mode != Mode.RIGHT)
-                items += key(if (shift) "⬆" else "⇧", 1.5f, special = true, accent = shift) { shift = !shift; changeMode() }
-            val chars = when (mode) { Mode.FULL -> l + r; Mode.LEFT -> l; Mode.RIGHT -> r }
-            chars.forEach { ch ->
-                val label = if (shift && canShift) ch.uppercaseChar() else ch
-                items += key(label.toString()) {
-                    listener.onChar(label)
-                    if (shift) { shift = false; changeMode() }
-                }
-            }
-            if (i == 3 && mode != Mode.LEFT)
-                items += key("⌫", 1.5f, special = true) { listener.onSpecial(Special.BACKSPACE) }
-            addRow(items)
+        rows().forEach { row ->
+            val line = LinearLayout(context).apply { orientation = HORIZONTAL }
+            row.forEach { k -> line.addView(keyView(k)) }
+            addView(line, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
         }
-        val bottom = mutableListOf<View>()
-        if (mode != Mode.RIGHT) {
-            bottom += key(if (symbols) "ABC" else "!#1", 1.5f, special = true) { symbols = !symbols; changeMode() }
-            bottom += key(if (arabic) "EN" else "ع", 1f, special = true) { arabic = !arabic; symbols = false; shift = false; changeMode() }
-        }
-        val spaceW = when (mode) { Mode.FULL -> 5f; Mode.LEFT -> 3f; Mode.RIGHT -> 2f }
-        bottom += key(if (arabic) "عربي" else if (mode == Mode.RIGHT) "" else "English", spaceW) { listener.onChar(' ') }
-        if (mode != Mode.LEFT) {
-            bottom += key("‹", 1f, special = true) { listener.onSpecial(Special.LEFT) }
-            bottom += key("›", 1f, special = true) { listener.onSpecial(Special.RIGHT) }
-            bottom += key("↵", 1.5f, special = true, accent = true) { listener.onSpecial(Special.ENTER) }
-        }
-        addRow(bottom)
     }
 
-    private fun addRow(items: List<View>) {
-        val total = if (mode == Mode.FULL) 11f else 5.5f
-        val used = items.sumOf { ((it.layoutParams as LayoutParams).weight).toDouble() }.toFloat()
-        val spare = (total - used).coerceAtLeast(0f)
-        val row = LinearLayout(context).apply { orientation = HORIZONTAL }
-        fun spacer(w: Float) { if (w > 0f) row.addView(View(context), LayoutParams(0, 1, w)) }
-        when (mode) { Mode.LEFT -> spacer(spare); Mode.FULL -> spacer(spare / 2); else -> {} }
-        items.forEach { row.addView(it) }
-        when (mode) { Mode.RIGHT -> spacer(spare); Mode.FULL -> spacer(spare / 2); else -> {} }
-        addView(row, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)))
+    private fun broadcastMode() {
+        build()
+        live.filter { it !== this }.forEach { it.build() }
+        if (mode != Mode.FULL)
+            Link.send(Link.msg("kb_mode", "shift" to shift, "caps" to caps, "symbols" to symbols, "arabic" to arabic))
     }
 
-    private fun key(label: String, weight: Float = 1f, special: Boolean = false, accent: Boolean = false, onTap: () -> Unit) =
-        TextView(context).apply {
-            text = label
-            textSize = if (label.length > 2) 14f else 21f
+    private var lastShiftTap = 0L
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun keyView(k: K): View {
+        if (k.kind == GAP) return View(context).apply { layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, k.w) }
+        val upper = (shift || caps) && !symbols && !arabic
+        val text = when (k.kind) { CHAR -> if (upper) k.label.uppercase() else k.label; else -> k.label }
+        val functional = k.kind != CHAR && k.kind != SPACE
+        val accent = (k.kind == SHIFT && (shift || caps)) || k.kind == ENTER
+        return TextView(context).apply {
+            this.text = text
+            textSize = when { k.kind == SPACE -> 13f; text.length > 2 -> 14f; else -> 21f }
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(if (k.kind == SPACE) Color.argb(150, 255, 255, 255) else Color.WHITE)
             background = GradientDrawable().apply {
-                cornerRadius = dp(10).toFloat()
-                setColor(when { accent -> Color.rgb(56, 132, 255); special -> Color.rgb(36, 37, 42); else -> Color.rgb(52, 53, 59) })
+                cornerRadius = dp(9).toFloat()
+                setColor(when { accent -> Color.rgb(62, 145, 255); functional -> Color.rgb(46, 47, 52); else -> Color.rgb(64, 65, 71) })
             }
-            layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, weight).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
-            setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); onTap() }
+            layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, k.w).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
+            if (k.kind == BACK) {
+                // hold backspace to keep deleting
+                val repeat = object : Runnable {
+                    override fun run() { listener.onSpecial(Special.BACKSPACE); handler.postDelayed(this, 55) }
+                }
+                setOnTouchListener { v, e ->
+                    when (e.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            v.isPressed = true; v.alpha = 0.6f
+                            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            listener.onSpecial(Special.BACKSPACE); handler.postDelayed(repeat, 420)
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            v.isPressed = false; v.alpha = 1f; handler.removeCallbacks(repeat)
+                        }
+                    }
+                    true
+                }
+            } else setOnClickListener { v ->
+                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                tap(k, upper)
+            }
         }
+    }
+
+    private fun tap(k: K, upper: Boolean) {
+        when (k.kind) {
+            CHAR -> {
+                listener.onChar(if (upper) k.ch.uppercaseChar() else k.ch)
+                if (shift && !caps) { shift = false; broadcastMode() }
+            }
+            SPACE -> listener.onChar(' ')
+            ENTER -> listener.onSpecial(Special.ENTER)
+            SHIFT -> {
+                val now = System.currentTimeMillis()
+                when {
+                    caps -> { caps = false; shift = false }
+                    shift && now - lastShiftTap < 350 -> { caps = true; shift = false }
+                    else -> shift = !shift
+                }
+                lastShiftTap = now
+                broadcastMode()
+            }
+            SYM -> { symbols = !symbols; shift = false; caps = false; broadcastMode() }
+            LANG -> { arabic = !arabic; symbols = false; shift = false; caps = false; broadcastMode() }
+        }
+    }
 }
