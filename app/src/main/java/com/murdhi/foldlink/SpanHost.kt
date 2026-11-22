@@ -127,6 +127,7 @@ object SpanHost {
 
         // Phone 2 can join (and re-join) any time over Wi-Fi.
         tcp = ServerSocket().apply { reuseAddress = true; bind(InetSocketAddress(PORT)) }
+        advertise(ctx)
         Thread { acceptClients() }.start()
         Link.send(Link.msg("span_start", "ips" to localIps(), "port" to PORT))
         openViewer(ctx)
@@ -151,7 +152,7 @@ object SpanHost {
             // FoldLink can't get root itself → let Termux (which has root) run the engine.
             val script = File(ctx.getExternalFilesDir(null), "foldspan.sh")
             script.writeText("#!/system/bin/sh\n$cmd\n")
-            post("FoldLink has no root, so start it from Termux.\nIn Termux, run:\n\nsu -c sh ${script.path.replace("/storage/emulated/", "/data/media/")}\n\n(Waiting 2 minutes…)")
+            post("Waiting for the FoldLink Engine module…\n(Install it in KernelSU → Modules, then reboot.)\nOr run in Termux:\nsu -c sh ${script.path.replace("/storage/emulated/", "/data/media/")}")
             bridgeWaitMs = 120_000
         }
         post("Starting the wide screen…")
@@ -300,13 +301,32 @@ object SpanHost {
         ctrlExec.execute { val o = ctrlOut ?: return@execute; try { o.writeByte(17); o.flush() } catch (_: Exception) {} }
     }
 
+    private var nsdReg: android.net.nsd.NsdManager.RegistrationListener? = null
+    private var nsd: android.net.nsd.NsdManager? = null
+    const val NSD_TYPE = "_foldspan._tcp."
+
+    private fun advertise(ctx: Context) {
+        try {
+            val m = ctx.getSystemService(android.net.nsd.NsdManager::class.java); nsd = m
+            val info = android.net.nsd.NsdServiceInfo().apply { serviceName = "FoldSpan"; serviceType = NSD_TYPE; port = PORT }
+            val l = object : android.net.nsd.NsdManager.RegistrationListener {
+                override fun onRegistrationFailed(i: android.net.nsd.NsdServiceInfo, e: Int) { addLog("nsd register failed $e") }
+                override fun onUnregistrationFailed(i: android.net.nsd.NsdServiceInfo, e: Int) {}
+                override fun onServiceRegistered(i: android.net.nsd.NsdServiceInfo) { addLog("nsd: advertising wide screen") }
+                override fun onServiceUnregistered(i: android.net.nsd.NsdServiceInfo) {}
+            }
+            m.registerService(info, android.net.nsd.NsdManager.PROTOCOL_DNS_SD, l); nsdReg = l
+        } catch (e: Exception) { addLog("nsd: ${e.message}") }
+    }
+
     fun stop() {
         if (!running && proc == null) return
         running = false
+        nsdReg?.let { try { nsd?.unregisterService(it) } catch (_: Exception) {} }; nsdReg = null
         listOf(client, video, control).forEach { try { it?.close() } catch (_: Exception) {} }
         try { tcp?.close() } catch (_: Exception) {}
         try { proc?.destroy() } catch (_: Exception) {}
-        Thread { su("pkill -f foldspan.jar") }.start()
+        Thread { if (findSu() != null) su("pkill -f foldspan.jar") }.start()
         proc = null; client = null; clientOut = null; ctrlOut = null; video = null; control = null; tcp = null
         width = 0; height = 0
         Link.send(Link.msg("span_stop"))

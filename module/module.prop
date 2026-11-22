@@ -1,0 +1,6 @@
+id=foldlink_engine
+name=FoldLink Engine
+version=1.0
+versionCode=1
+author=Murdhi
+description=Runs the FoldLink wide screen (stretch across two phones) with root whenever the FoldLink app asks.

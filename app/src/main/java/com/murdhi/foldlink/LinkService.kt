@@ -130,7 +130,7 @@ class LinkService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!running) { running = true; Thread { loop() }.start() }
+        if (!running) { running = true; Thread { loop() }.start(); Thread { foldLoop() }.start() }
         return START_STICKY
     }
 
@@ -144,6 +144,66 @@ class LinkService : Service() {
         hideOverlay()
         Link.status = "Stopped"
         super.onDestroy()
+    }
+
+    // ---------- always-on wide screen ("like a Z Fold") ----------
+
+    /** Phone 1 keeps the wide screen running; phone 2 keeps looking for it on Wi-Fi and opens its half. */
+    private fun foldLoop() {
+        var backoff = 0L
+        while (running) {
+            try {
+                val p = Prefs.get(this)
+                val on = p.getBoolean(Prefs.ALWAYS_EXTEND, true) && !p.getBoolean(Prefs.EXTEND_PAUSED, false)
+                if (on && Prefs.isMain(this)) {
+                    if (!SpanHost.running && System.currentTimeMillis() > backoff) {
+                        SpanHost.start(this)
+                        backoff = System.currentTimeMillis() + 45_000
+                    }
+                } else if (on && !SpanViewActivity.active) {
+                    findWideScreen()?.let { (ip, port) ->
+                        SpanViewActivity.live = true
+                        SpanViewActivity.lastIps = ip; SpanViewActivity.lastPort = port
+                        handler.post { openSpanClient() }
+                        Thread.sleep(8000)
+                    }
+                }
+            } catch (_: Exception) {}
+            try { Thread.sleep(3000) } catch (_: InterruptedException) {}
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun findWideScreen(): Pair<String, Int>? {
+        val nsd = getSystemService(android.net.nsd.NsdManager::class.java)
+        val wifi = applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+        val lock = wifi.createMulticastLock("foldspan").apply { setReferenceCounted(false); acquire() }
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var found: Pair<String, Int>? = null
+        val disc = object : android.net.nsd.NsdManager.DiscoveryListener {
+            override fun onStartDiscoveryFailed(t: String, e: Int) { latch.countDown() }
+            override fun onStopDiscoveryFailed(t: String, e: Int) {}
+            override fun onDiscoveryStarted(t: String) {}
+            override fun onDiscoveryStopped(t: String) {}
+            override fun onServiceLost(i: android.net.nsd.NsdServiceInfo) {}
+            override fun onServiceFound(i: android.net.nsd.NsdServiceInfo) {
+                if (!i.serviceName.startsWith("FoldSpan")) return
+                nsd.resolveService(i, object : android.net.nsd.NsdManager.ResolveListener {
+                    override fun onResolveFailed(i: android.net.nsd.NsdServiceInfo, e: Int) {}
+                    override fun onServiceResolved(i: android.net.nsd.NsdServiceInfo) {
+                        val h = i.host?.hostAddress
+                        if (h != null) { found = h to i.port; latch.countDown() }
+                    }
+                })
+            }
+        }
+        try {
+            nsd.discoverServices(SpanHost.NSD_TYPE, android.net.nsd.NsdManager.PROTOCOL_DNS_SD, disc)
+            latch.await(6, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: Exception) {}
+        try { nsd.stopServiceDiscovery(disc) } catch (_: Exception) {}
+        lock.release()
+        return found
     }
 
     // ---------- connection ----------
@@ -243,7 +303,7 @@ class LinkService : Service() {
                 }
                 else Link.send(Link.msg("apps_req"))
             }
-            "_disconnected" -> { hideOverlay(); if (Prefs.isMain(this) && SpanHost.running) SpanHost.stop() }
+            "_disconnected" -> hideOverlay()
             "off" -> { gotOff = true; Thread { Link.status = "Other phone powered off → " + PowerOff.shutdown(this) }.start() }
             "screen" -> {
                 suppressScreenUntil = System.currentTimeMillis() + 2500
