@@ -189,11 +189,6 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
                 buf.clear(); buf.put(data)
                 d.queueInputBuffer(idx, 0, data.size, pts, if (config) MediaCodec.BUFFER_FLAG_CODEC_CONFIG else 0)
             }
-            val info = MediaCodec.BufferInfo()
-            while (true) {
-                val out = d.dequeueOutputBuffer(info, 0)
-                if (out >= 0) d.releaseOutputBuffer(out, true) else break
-            }
         } catch (_: Exception) {}
     }
 
@@ -204,9 +199,24 @@ class SpanViewActivity : Activity(), TextureView.SurfaceTextureListener, SpanHos
             if (decoder != null) return
             try {
                 val d = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-                d.configure(MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, vw, vh), s, null, 0)
+                val fmt = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, vw, vh)
+                if (android.os.Build.VERSION.SDK_INT >= 30) fmt.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                fmt.setInteger(MediaFormat.KEY_PRIORITY, 0)
+                fmt.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
+                try { d.configure(fmt, s, null, 0) }
+                catch (e: Exception) { d.configure(MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, vw, vh), s, null, 0) }
                 d.start()
                 decoder = d
+                // Show each frame the moment it's decoded.
+                Thread {
+                    val info = MediaCodec.BufferInfo()
+                    while (decoder === d && !ended) {
+                        try {
+                            val out = d.dequeueOutputBuffer(info, 10_000)
+                            if (out >= 0) d.releaseOutputBuffer(out, true)
+                        } catch (_: Exception) { break }
+                    }
+                }.apply { priority = Thread.MAX_PRIORITY }.start()
                 needKey = true
                 pendingConfig?.let { feed(d, it, 0, true) }
             } catch (e: Exception) { statusView.text = "Video decoder failed: ${e.message}" }

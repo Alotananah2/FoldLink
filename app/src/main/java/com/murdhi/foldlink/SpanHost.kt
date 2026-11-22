@@ -120,7 +120,7 @@ object SpanHost {
         ctx.getSystemService(WindowManager::class.java).defaultDisplay.getRealMetrics(dm)
         val w1 = minOf(dm.widthPixels, dm.heightPixels)
         val h1 = maxOf(dm.widthPixels, dm.heightPixels)
-        val scale = 1.5f
+        val scale = 2.2f   // lower render size = much smoother over Wi-Fi
         val vw = align8((2 * w1 / scale).toInt())
         val vh = align8((h1 / scale).toInt())
         val dpi = (dm.densityDpi / scale).toInt()
@@ -138,7 +138,7 @@ object SpanHost {
         val cmd = "cp '${jar.path.replace("/storage/emulated/", "/data/media/")}' /data/local/tmp/foldspan.jar && chmod 644 /data/local/tmp/foldspan.jar && " +
             "CLASSPATH=/data/local/tmp/foldspan.jar:$apk app_process / com.murdhi.foldlink.SpanBridge $BRIDGE_PORT $scid " +
             "$SERVER_VERSION scid=$scid log_level=info tunnel_forward=false audio=false control=true cleanup=false " +
-            "video_codec=h264 video_bit_rate=10000000 max_fps=60 send_device_meta=false send_dummy_byte=false " +
+            "video_codec=h264 video_bit_rate=6000000 max_fps=60 video_codec_options=latency=0,priority=0 send_device_meta=false send_dummy_byte=false " +
             "new_display=${vw}x${vh}/$dpi vd_system_decorations=true display_ime_policy=local"
         addLog("$ $cmd")
         if (hasRoot) {
